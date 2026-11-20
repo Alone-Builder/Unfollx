@@ -30,11 +30,17 @@
   const uid = (u) => String(u.pk ?? u.pk_id ?? u.id);
 
   async function api(path, options = {}) {
+    let claim = "0";
+    try { claim = sessionStorage.getItem("www-claim-v2") || "0"; } catch {}
     const res = await fetch("https://www.instagram.com/api/v1/" + path, {
       credentials: "include",
       ...options,
       headers: {
+        "accept": "*/*",
         "x-ig-app-id": APP_ID,
+        "x-asbd-id": "129477",
+        "x-ig-www-claim": claim,
+        "x-instagram-ajax": "1",
         "x-csrftoken": cookie("csrftoken"),
         "x-requested-with": "XMLHttpRequest",
         ...(options.headers || {}),
@@ -42,8 +48,15 @@
     });
     if (res.status === 429) throw new Error("Instagram is rate-limiting you. Wait a few hours before trying again.");
     if (res.status === 401 || res.status === 403) throw new Error("Instagram refused the request. Make sure you are logged in, then reload the page.");
-    if (!res.ok) throw new Error(`Instagram returned an error (${res.status}).`);
-    const data = await res.json();
+    const text = await res.text();
+    let data;
+    try { data = JSON.parse(text); }
+    catch {
+      throw new Error(res.ok
+        ? "Instagram sent a web page instead of data (login or security check). Open instagram.com, finish any prompt, reload the page and try again."
+        : `Instagram returned an error (${res.status}).`);
+    }
+    if (!res.ok) throw new Error(data.message || `Instagram returned an error (${res.status}).`);
     if (data.status === "fail") throw new Error(data.message || "Instagram blocked this action. Wait before trying again.");
     return data;
   }
