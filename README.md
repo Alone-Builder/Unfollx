@@ -17,6 +17,9 @@ Chrome extension that lists the accounts you follow that don't follow you back, 
    - **Follow you back**: mutuals. Read-only, never touched.
    - **Fans**: people who follow you but you don't follow. Read-only.
 
+## Updates
+The extension checks this GitHub repo's `manifest.json` every few hours. If the version there is newer, the toolbar icon shows **NEW**, and both the toolbar popup and the Unfollx panel offer **Download update** (zip from GitHub) and **Reload extension**. Chrome doesn't let unpacked extensions replace their own files, so extract the zip over your folder, then press **Reload extension**. To release an update, bump `version` in `manifest.json` and push to `main`.
+
 ## Limits
 - It relies on Instagram's internal web API, which Instagram can change without notice.
 - Instagram limits how many accounts you can unfollow per day. If you see a "blocked" or "rate-limiting" message, stop and wait a day.

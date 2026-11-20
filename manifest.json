@@ -1,8 +1,12 @@
 {
   "manifest_version": 3,
   "name": "Unfollx",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Find the accounts you follow on Instagram that don't follow you back, and unfollow them at a safe pace.",
+  "permissions": ["storage", "alarms"],
+  "host_permissions": ["https://raw.githubusercontent.com/Alone-Builder/Unfollx/*"],
+  "background": { "service_worker": "background.js" },
+  "action": { "default_title": "Unfollx", "default_popup": "popup.html" },
   "content_scripts": [
     {
       "matches": ["https://www.instagram.com/*"],

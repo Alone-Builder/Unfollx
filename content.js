@@ -119,6 +119,26 @@
   );
   document.body.append(launcher, panel);
 
+  // Update banner: shown when GitHub has a newer version than the one installed.
+  const updTitle = el("b");
+  const updBanner = el("div", { className: "ignf-update", hidden: true },
+    updTitle,
+    el("small", { textContent: "Download the zip, extract it over your Unfollx folder, then reload." }),
+    el("div", { className: "ignf-tools" },
+      Object.assign(el("button", { className: "ignf-btn ignf-primary ignf-small", textContent: "Download update" }),
+        { onclick: () => window.open("https://github.com/Alone-Builder/Unfollx/archive/refs/heads/main.zip", "_blank", "noopener") }),
+      Object.assign(el("button", { className: "ignf-btn ignf-small", textContent: "Reload extension" }),
+        { onclick: () => { try { chrome.runtime.sendMessage({ type: "reload" }); } catch {} setTimeout(() => location.reload(), 800); } })));
+  panel.insertBefore(updBanner, status);
+  try {
+    chrome.runtime.sendMessage({ type: "check" }, (r) => {
+      if (chrome.runtime.lastError || !r || !r.available) return;
+      updTitle.textContent = `Update available: ${r.latest} (you have ${r.current})`;
+      updBanner.hidden = false;
+      launcher.classList.add("ignf-has-update");
+    });
+  } catch {}
+
   const setStatus = (t, bad = false) => { status.textContent = t; status.classList.toggle("ignf-bad", bad); };
   const setBusy = (b) => {
     state.busy = b;

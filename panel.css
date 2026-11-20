@@ -101,3 +101,9 @@
 .ignf-who small { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ignf-tick { flex: none; display: inline-grid; place-items: center; width: 14px; height: 14px; border-radius: 50%; background: var(--ig-blue); color: #fff; font-size: 9px; }
 .ignf-note { font-size: 11px; color: var(--muted); }
+
+/* update banner */
+.ignf-update { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: 10px; border: 1px solid #d62976; background: var(--bg-2); font-size: 13px; }
+.ignf-update small { color: var(--muted); }
+.ignf-has-update::after { content: ""; position: absolute; top: -2px; right: -2px; width: 12px; height: 12px; border-radius: 50%; background: #ed4956; border: 2px solid #fff; }
+.ignf-launch { overflow: visible; }
