@@ -1,0 +1,103 @@
+/* Instagram palette: brand gradient + Instagram blue / red accents */
+.ignf-launch, .ignf-panel {
+  --ig-grad: linear-gradient(45deg, #feda75 0%, #fa7e1e 25%, #d62976 50%, #962fbf 75%, #4f5bd5 100%);
+  --ig-blue: #0095f6;
+  --ig-blue-hover: #1877f2;
+  --ig-red: #ed4956;
+  --bg: #ffffff; --bg-2: #fafafa; --line: #dbdbdb; --text: #262626; --muted: #737373;
+  box-sizing: border-box;
+}
+@media (prefers-color-scheme: dark) {
+  .ignf-panel { --bg: #121212; --bg-2: #1c1c1c; --line: #363636; --text: #fafafa; --muted: #a8a8a8; }
+}
+.ignf-panel *, .ignf-panel *::before, .ignf-panel *::after { box-sizing: border-box; }
+.ignf-panel [hidden], .ignf-panel[hidden], .ignf-launch[hidden] { display: none !important; }
+
+/* launcher */
+.ignf-launch {
+  position: fixed; right: 20px; bottom: 20px; z-index: 2147483646;
+  display: inline-flex; align-items: center; gap: 8px;
+  background: var(--ig-grad); color: #fff; border: 0; border-radius: 999px;
+  padding: 11px 18px; font: 700 14px -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  cursor: pointer; box-shadow: 0 6px 20px rgba(214, 41, 118, .4);
+  transition: transform .15s ease, box-shadow .15s ease;
+}
+.ignf-launch:hover { transform: translateY(-2px); box-shadow: 0 10px 26px rgba(214, 41, 118, .5); }
+.ignf-launch-dot { width: 10px; height: 10px; border-radius: 50%; background: #fff; opacity: .9; }
+
+/* panel */
+.ignf-panel {
+  position: fixed; right: 20px; bottom: 74px; z-index: 2147483647;
+  width: min(440px, calc(100vw - 32px)); max-height: min(680px, calc(100vh - 100px));
+  display: flex; flex-direction: column; gap: 10px; padding: 0 16px 14px;
+  background: var(--bg); color: var(--text); border-radius: 16px; overflow: hidden;
+  font: 14px/1.35 -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  border: 1px solid var(--line); box-shadow: 0 16px 48px rgba(0, 0, 0, .35);
+}
+.ignf-bar { height: 4px; margin: 0 -16px; background: var(--ig-grad); flex: none; order: -1; }
+.ignf-panel > .ignf-head { order: 0; }
+.ignf-head { display: flex; justify-content: space-between; align-items: center; padding-top: 12px; }
+.ignf-title { display: flex; align-items: center; gap: 10px; font-size: 18px; }
+.ignf-title strong { background: var(--ig-grad); -webkit-background-clip: text; background-clip: text; color: transparent; font-weight: 800; letter-spacing: -.3px; }
+.ignf-logo { width: 22px; height: 22px; border-radius: 7px; background: var(--ig-grad); position: relative; }
+.ignf-logo::after { content: ""; position: absolute; inset: 5px; border: 2px solid #fff; border-radius: 50%; }
+.ignf-close { border: 0; background: none; font-size: 26px; line-height: 1; cursor: pointer; color: var(--muted); padding: 0 4px; }
+.ignf-close:hover { color: var(--text); }
+
+.ignf-status { font-size: 13px; color: var(--text); background: var(--bg-2); border: 1px solid var(--line); padding: 9px 12px; border-radius: 10px; }
+.ignf-status.ignf-bad { color: var(--ig-red); border-color: var(--ig-red); }
+
+/* stats */
+.ignf-stats { display: flex; gap: 8px; }
+.ignf-stat { flex: 1; text-align: center; padding: 8px 4px; border-radius: 10px; background: var(--bg-2); border: 1px solid var(--line); }
+.ignf-stat b { display: block; font-size: 18px; }
+.ignf-stat span { font-size: 11px; color: var(--muted); }
+.ignf-stat:last-child b { background: var(--ig-grad); -webkit-background-clip: text; background-clip: text; color: transparent; }
+
+/* tabs */
+.ignf-tabs { display: flex; border-bottom: 1px solid var(--line); }
+.ignf-tab {
+  flex: 1; border: 0; background: none; color: var(--muted); cursor: pointer;
+  padding: 9px 4px; font: 600 12px inherit; font-family: inherit; border-bottom: 2px solid transparent; margin-bottom: -1px;
+  display: flex; align-items: center; justify-content: center; gap: 6px; white-space: nowrap;
+}
+.ignf-tab:hover { color: var(--text); }
+.ignf-tab.ignf-on { color: var(--text); border-bottom-color: #d62976; }
+.ignf-count { font-size: 11px; padding: 1px 7px; border-radius: 999px; background: var(--bg-2); border: 1px solid var(--line); }
+.ignf-tab.ignf-on .ignf-count { background: var(--ig-grad); color: #fff; border-color: transparent; }
+
+/* buttons */
+.ignf-tools { display: flex; flex-wrap: wrap; gap: 8px; }
+.ignf-btn {
+  border: 0; background: var(--bg-2); color: var(--text); border-radius: 8px; box-shadow: inset 0 0 0 1px var(--line);
+  padding: 7px 14px; font: 600 13px -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; cursor: pointer;
+  transition: filter .15s ease;
+}
+.ignf-btn:hover:not(:disabled) { filter: brightness(.95); }
+.ignf-btn:disabled { opacity: .5; cursor: default; }
+.ignf-primary { background: var(--ig-blue); color: #fff; box-shadow: none; }
+.ignf-primary:hover:not(:disabled) { background: var(--ig-blue-hover); filter: none; }
+.ignf-danger { background: var(--ig-red); color: #fff; box-shadow: none; }
+.ignf-small { padding: 5px 12px; font-size: 12px; }
+
+.ignf-search {
+  padding: 9px 12px; border: 1px solid var(--line); border-radius: 10px; font: inherit;
+  background: var(--bg-2); color: var(--text); outline: none;
+}
+.ignf-search:focus { border-color: var(--muted); }
+
+/* list */
+.ignf-list { list-style: none; margin: 0; padding: 0; overflow-y: auto; flex: 1; min-height: 60px; }
+.ignf-list li { display: flex; align-items: center; gap: 10px; padding: 8px 2px; }
+.ignf-list li.ignf-done { opacity: .45; }
+.ignf-list li.ignf-empty { justify-content: center; color: var(--muted); padding: 24px 0; }
+.ignf-list input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--ig-blue); flex: none; cursor: pointer; }
+.ignf-ring { flex: none; width: 44px; height: 44px; padding: 2px; border-radius: 50%; background: var(--ig-grad); display: block; }
+.ignf-ring img { display: block; width: 100%; height: 100%; border-radius: 50%; object-fit: cover; border: 2px solid var(--bg); background: var(--line); }
+.ignf-who { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.ignf-name { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.ignf-who a { color: var(--text); font-weight: 600; text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ignf-who a:hover { text-decoration: underline; }
+.ignf-who small { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ignf-tick { flex: none; display: inline-grid; place-items: center; width: 14px; height: 14px; border-radius: 50%; background: var(--ig-blue); color: #fff; font-size: 9px; }
+.ignf-note { font-size: 11px; color: var(--muted); }
