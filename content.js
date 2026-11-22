@@ -80,14 +80,16 @@
     if (res.status === 429) throw new Error("Instagram is rate-limiting you. Wait a few hours before trying again.");
     if (res.status === 401 || res.status === 403) throw new Error("Instagram refused the request. Make sure you are logged in, then reload the page.");
     const text = await res.text();
+    const seen = `${res.status} ${(res.headers.get("content-type") || "").split(";")[0] || "no type"}${res.redirected ? ", redirected" : ""}`;
+    console.debug("[Unfollx]", path, seen, text.slice(0, 160));
     let data;
     try { data = JSON.parse(text); }
     catch {
       throw Object.assign(new Error(res.ok
         ? "Instagram sent a web page instead of data (login or security check). Open instagram.com, finish any prompt, reload the page and try again."
-        : `Instagram returned an error (${res.status}).`), { retry: true });
+        : `Instagram returned an error (${res.status}).`), { retry: true, seen });
     }
-    if (res.status === 404) throw Object.assign(new Error("Instagram returned an error (404)."), { retry: true });
+    if (res.status === 404) throw Object.assign(new Error("Instagram returned an error (404)."), { retry: true, seen });
     if (!res.ok) throw new Error(data.message || `Instagram returned an error (${res.status}).`);
     if (data.status === "fail") throw new Error(data.message || "Instagram blocked this action. Wait before trying again.");
     return data;
@@ -95,6 +97,7 @@
 
   // Instagram has served follow/unfollow from different paths over time; try each until one is accepted.
   async function action(paths, id) {
+    const tried = [];
     let last;
     for (const p of paths) {
       try {
@@ -105,10 +108,11 @@
         });
       } catch (e) {
         last = e;
+        tried.push(`${p.replace("{id}", "…")} → ${e.seen || e.message}`);
         if (!e.retry) throw e;
       }
     }
-    throw last;
+    throw new Error(`${last.message} Tried: ${tried.join("; ")}`);
   }
 
   async function fetchList(kind, userId, onPage, limit = Infinity) {
