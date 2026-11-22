@@ -19,6 +19,9 @@ async function check(force = false) {
   if (!force && update && update.current === current && Date.now() - update.checkedAt < MIN_GAP) return update;
   try {
     const res = await fetch(MANIFEST_URL, { cache: "no-store" });
+    if (res.status === 404) {
+      return { current, available: false, error: "Can't read the GitHub repo. It must be public for update checks to work." };
+    }
     if (!res.ok) throw new Error(String(res.status));
     const latest = (await res.json()).version;
     const next = { latest, current, available: newer(latest, current), checkedAt: Date.now() };
