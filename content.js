@@ -63,7 +63,7 @@
   async function api(path, options = {}) {
     let claim = "0";
     try { claim = sessionStorage.getItem("www-claim-v2") || "0"; } catch {}
-    const res = await fetch("https://www.instagram.com/api/v1/" + path, {
+    const res = await fetch(path.startsWith("/") ? "https://www.instagram.com" + path : "https://www.instagram.com/api/v1/" + path, {
       credentials: "include",
       ...options,
       headers: {
@@ -134,7 +134,7 @@
     return n;
   };
 
-  const launcher = el("button", { className: "ignf-launch", title: "Unfollx: sort who follows you back" },
+  const launcher = el("button", { className: "ignf-launch", title: "Unfollx v" + (() => { try { return chrome.runtime.getManifest().version; } catch { return "?"; } })() },
     el("span", { className: "ignf-launch-dot" }), "Unfollx");
   // Notifications appear as a toast at the side of the screen instead of inside the panel.
   const toast = el("div", { className: "ignf-toast", hidden: true });
@@ -330,7 +330,7 @@
 
   async function unfollow(u) {
     const id = uid(u);
-    await action(["friendships/destroy/{id}/", "web/friendships/{id}/unfollow/"], id);
+    await action(["/web/friendships/{id}/unfollow/", "friendships/destroy/{id}/", "web/friendships/{id}/unfollow/"], id);
     state.done.add(id); state.selected.delete(id);
   }
 
@@ -463,7 +463,7 @@
 
   async function followOne(u) {
     const id = uid(u);
-    await action(["friendships/create/{id}/", "web/friendships/{id}/follow/"], id);
+    await action(["/web/friendships/{id}/follow/", "friendships/create/{id}/", "web/friendships/{id}/follow/"], id);
     state.follow.done.add(id); state.follow.selected.delete(id);
     await countFollow();
   }
