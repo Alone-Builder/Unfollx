@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <defs>
+    <linearGradient id="g" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0" stop-color="#feda75"/>
+      <stop offset=".25" stop-color="#fa7e1e"/>
+      <stop offset=".5" stop-color="#d62976"/>
+      <stop offset=".75" stop-color="#962fbf"/>
+      <stop offset="1" stop-color="#4f5bd5"/>
+    </linearGradient>
+  </defs>
+  <rect width="128" height="128" rx="30" fill="url(#g)"/>
+  <!-- person -->
+  <circle cx="52" cy="46" r="19" fill="#fff"/>
+  <path d="M14 110c0-24 17-38 38-38s38 14 38 38z" fill="#fff"/>
+  <!-- unfollow badge with cut-out ring -->
+  <circle cx="96" cy="92" r="27" fill="#c2308a"/>
+  <circle cx="96" cy="92" r="21" fill="#fff"/>
+  <path d="M87 83l18 18M105 83L87 101" stroke="#d62976" stroke-width="7" stroke-linecap="round"/>
+</svg>

@@ -6,7 +6,16 @@
 
   const APP_ID = "936619743392459"; // Instagram web app id, sent by instagram.com itself
   const PAGE_DELAY = [900, 1800];   // pause between list pages while scanning (ms)
-  const UNFOLLOW_DELAY = [20000, 40000]; // pause between unfollows in a batch (ms)
+  // Pause between actions in a batch (ms, random inside the range).
+  //  fast: averages ~1.8 s, so about 100 accounts in 3 minutes.
+  //  safe: 20-40 s, far less likely to trigger an Instagram action block.
+  const SPEEDS = {
+    fast: { label: "Fast (~3 min per 100)", range: [900, 2700] },
+    safe: { label: "Safe (20–40 s each)", range: [20000, 40000] },
+  };
+  const FOLLOW_LIMIT = 100;            // follows allowed per logged-in account...
+  const FOLLOW_WINDOW = 24 * 3600e3;   // ...per rolling 24 hours, counted separately for each account
+  const LOAD_CAP = 300;                // max users loaded from another account's list
 
   // Groups produced by a scan.
   //  nonfollowers: you follow them, they don't follow you  (the only group you can unfollow here)
@@ -22,7 +31,17 @@
     groups: { nonfollowers: [], mutual: [], fans: [] },
     tab: "nonfollowers",
     selected: new Set(), done: new Set(), busy: false, stop: false, scanned: false,
+    mode: "unfollow", speed: "fast",
+    follow: { users: [], selected: new Set(), done: new Set(), loaded: false },
   };
+
+  // Small wrapper around chrome.storage.local (speed choice + per-account follow counters).
+  const store = {
+    get: (k) => new Promise((r) => { try { chrome.storage.local.get(k, (v) => r(v || {})); } catch { r({}); } }),
+    set: (o) => { try { chrome.storage.local.set(o); } catch {} },
+  };
+  const delay = () => between(SPEEDS[state.speed].range);
+  const avgMinutes = (n) => Math.max(1, Math.ceil((n * (SPEEDS[state.speed].range[0] + SPEEDS[state.speed].range[1]) / 2) / 60000));
 
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const between = ([a, b]) => a + Math.random() * (b - a);
@@ -61,7 +80,7 @@
     return data;
   }
 
-  async function fetchList(kind, userId, onPage) {
+  async function fetchList(kind, userId, onPage, limit = Infinity) {
     const users = new Map();
     let maxId = "";
     do {
@@ -71,6 +90,7 @@
       onPage(users.size);
       maxId = data.next_max_id || "";
       if (state.stop) throw new Error("Scan stopped.");
+      if (users.size >= limit) break;
       if (maxId) await sleep(between(PAGE_DELAY));
     } while (maxId);
     return users;
@@ -104,19 +124,52 @@
     tabs.append(b);
   }
   const tools = el("div", { className: "ignf-tools" }, scanBtn, selectAll, batchBtn, stopBtn);
+  // Speed + mode switch (shared by both views)
+  const speedSel = el("select", { className: "ignf-select" });
+  for (const [k, v] of Object.entries(SPEEDS)) speedSel.append(el("option", { value: k, textContent: v.label }));
+  speedSel.value = state.speed;
+  speedSel.onchange = () => { state.speed = speedSel.value; store.set({ speed: state.speed }); };
+  const speedRow = el("label", { className: "ignf-speed" }, "Speed", speedSel);
+
+  const modeBtns = {
+    unfollow: el("button", { className: "ignf-tab", textContent: "Unfollow" }),
+    follow: el("button", { className: "ignf-tab", textContent: "Bulk follow" }),
+  };
+  for (const [k, b] of Object.entries(modeBtns)) b.onclick = () => { state.mode = k; render(); };
+  const modes = el("div", { className: "ignf-tabs" }, modeBtns.unfollow, modeBtns.follow);
+
+  // ----- bulk follow view -----
+  const quotaLine = el("div", { className: "ignf-quota" });
+  const targetInput = el("input", { className: "ignf-search", type: "text", placeholder: "username of the account to copy from" });
+  const kindSel = el("select", { className: "ignf-select" },
+    el("option", { value: "followers", textContent: "Followers" }),
+    el("option", { value: "following", textContent: "Following" }));
+  const loadBtn = el("button", { className: "ignf-btn ignf-primary", textContent: "Load" });
+  const fSelectAll = el("button", { className: "ignf-btn", textContent: "Select all" });
+  const followBtn = el("button", { className: "ignf-btn ignf-primary", textContent: "Follow selected" });
+  const fStopBtn = el("button", { className: "ignf-btn", textContent: "Stop", hidden: true });
+  const fList = el("ul", { className: "ignf-list" });
+  const followView = el("div", { className: "ignf-view", hidden: true },
+    quotaLine,
+    el("div", { className: "ignf-tools" }, targetInput, kindSel, loadBtn),
+    el("div", { className: "ignf-tools" }, fSelectAll, followBtn, fStopBtn),
+    fList);
+
+  const unfollowView = el("div", { className: "ignf-view" }, stats, tabs, tools, search, list);
+
   const panel = el("div", { className: "ignf-panel", hidden: true },
     el("div", { className: "ignf-head" },
       el("div", { className: "ignf-title" }, el("span", { className: "ignf-logo" }), el("strong", { textContent: "Unfollx" })),
       close),
     bar,
     status,
-    stats,
-    tabs,
-    tools,
-    search,
-    list,
-    el("div", { className: "ignf-note", textContent: "Batch unfollows wait 20–40 seconds between accounts to keep your account safe. Instagram may still limit you if you unfollow a lot in one day." }),
+    speedRow,
+    modes,
+    unfollowView,
+    followView,
+    el("div", { className: "ignf-note", textContent: "Instagram may limit or block your account if you follow or unfollow many accounts quickly. Use Safe speed if you see warnings, and stop for the day if Instagram rate-limits you." }),
   );
+  store.get("speed").then(({ speed }) => { if (SPEEDS[speed]) { state.speed = speed; speedSel.value = speed; } });
   document.body.append(launcher, panel);
 
   // Update banner: shown when GitHub has a newer version than the one installed.
@@ -142,11 +195,17 @@
   const setStatus = (t, bad = false) => { status.textContent = t; status.classList.toggle("ignf-bad", bad); };
   const setBusy = (b) => {
     state.busy = b;
-    scanBtn.disabled = b;
-    stopBtn.hidden = !b;
+    scanBtn.disabled = loadBtn.disabled = b;
+    stopBtn.hidden = fStopBtn.hidden = !b;
+    speedSel.disabled = b;
   };
 
   function render() {
+    for (const [k, b] of Object.entries(modeBtns)) b.classList.toggle("ignf-on", state.mode === k);
+    unfollowView.hidden = state.mode !== "unfollow";
+    followView.hidden = state.mode !== "follow";
+    if (state.mode === "follow") return renderFollow();
+
     const canAct = state.tab === "nonfollowers";
     const q = search.value.trim().toLowerCase();
 
@@ -250,7 +309,7 @@
   async function batch() {
     // Only accounts in the "not following back" group can ever be queued.
     const queue = state.groups.nonfollowers.filter((u) => state.selected.has(uid(u)) && !state.done.has(uid(u)));
-    if (!queue.length || !confirm(`Unfollow ${queue.length} account(s) who don't follow you back? This will take about ${Math.ceil(queue.length * 0.5)} minute(s). Keep this tab open.`)) return;
+    if (!queue.length || !confirm(`Unfollow ${queue.length} account(s) who don't follow you back? This will take about ${avgMinutes(queue.length)} minute(s). Keep this tab open.`)) return;
     setBusy(true); state.stop = false; render();
     let n = 0;
     try {
@@ -258,11 +317,7 @@
         if (state.stop) break;
         await unfollow(u); n++; render();
         if (n < queue.length) {
-          const wait = between(UNFOLLOW_DELAY);
-          for (let left = Math.ceil(wait / 1000); left > 0 && !state.stop; left--) {
-            setStatus(`Unfollowed ${n} of ${queue.length}. Next in ${left}s…`);
-            await sleep(1000);
-          }
+          await pause(delay(), `Unfollowed ${n} of ${queue.length}.`);
         }
       }
       setStatus(state.stop ? `Stopped. Unfollowed ${n} of ${queue.length}.` : `Done. Unfollowed ${n} account(s).`);
@@ -272,7 +327,153 @@
     setBusy(false); render();
   }
 
-  launcher.onclick = () => { panel.hidden = !panel.hidden; };
+  // Wait `ms`, counting down in the status line only when the wait is long enough to matter.
+  async function pause(ms, prefix) {
+    if (ms < 5000) { setStatus(`${prefix} Working…`); await sleep(ms); return; }
+    for (let left = Math.ceil(ms / 1000); left > 0 && !state.stop; left--) {
+      setStatus(`${prefix} Next in ${left}s…`);
+      await sleep(1000);
+    }
+  }
+
+  // ---------- bulk follow ----------
+  const RESERVED = new Set(["explore", "reels", "reel", "direct", "accounts", "p", "stories", "tv", "about", "legal", "developer"]);
+  const pageUser = () => {
+    const seg = location.pathname.split("/").filter(Boolean)[0] || "";
+    return RESERVED.has(seg) ? "" : seg;
+  };
+
+  // Follows made from the logged-in account in the last 24 h. Counted separately per account id.
+  async function quota() {
+    const me = cookie("ds_user_id");
+    const { follows = {} } = await store.get("follows");
+    let rec = follows[me];
+    if (!rec || Date.now() - rec.since > FOLLOW_WINDOW) rec = { count: 0, since: Date.now() };
+    return { me, follows, rec, left: Math.max(0, FOLLOW_LIMIT - rec.count) };
+  }
+  async function countFollow() {
+    const q = await quota();
+    q.follows[q.me] = { count: q.rec.count + 1, since: q.rec.since };
+    store.set({ follows: q.follows });
+  }
+
+  async function renderQuota() {
+    const q = await quota();
+    if (!q.me) { quotaLine.textContent = "Not logged in to Instagram."; return q; }
+    const hrs = Math.max(1, Math.ceil((q.rec.since + FOLLOW_WINDOW - Date.now()) / 3600e3));
+    quotaLine.textContent = q.left
+      ? `This account: ${q.rec.count}/${FOLLOW_LIMIT} follows used. ${q.left} left.`
+      : `This account reached ${FOLLOW_LIMIT} follows. Limit resets in about ${hrs}h. Log in with another account to continue.`;
+    quotaLine.classList.toggle("ignf-bad", !q.left);
+    return q;
+  }
+
+  const alreadyFollowing = () => new Set([...state.groups.nonfollowers, ...state.groups.mutual].map(uid));
+
+  function renderFollow() {
+    if (!targetInput.value) targetInput.value = pageUser();
+    renderQuota();
+    const f = state.follow;
+    const mine = cookie("ds_user_id");
+    const following = alreadyFollowing();
+    fList.replaceChildren();
+    if (!f.loaded) fList.append(el("li", { className: "ignf-empty", textContent: "Open another account's profile, then press Load to list their followers or following." }));
+    else if (!f.users.length) fList.append(el("li", { className: "ignf-empty", textContent: "No users found (the list may be private)." }));
+    for (const u of f.users) {
+      const id = uid(u);
+      const skip = id === mine || following.has(id);
+      const done = f.done.has(id);
+      const row = el("li", { className: done || skip ? "ignf-done" : "" });
+      const box = el("input", { type: "checkbox", checked: f.selected.has(id), disabled: done || skip || state.busy });
+      box.onchange = () => { box.checked ? f.selected.add(id) : f.selected.delete(id); updateFollowBtn(); };
+      row.append(box,
+        el("span", { className: "ignf-ring" }, el("img", { src: u.profile_pic_url || "", alt: "", loading: "lazy", referrerPolicy: "no-referrer" })),
+        el("span", { className: "ignf-who" },
+          el("span", { className: "ignf-name" }, el("a", { href: `https://www.instagram.com/${u.username}/`, target: "_blank", rel: "noopener", textContent: u.username })),
+          el("small", { textContent: done ? "Followed" : skip ? (id === mine ? "You" : "Already following") : (u.full_name || "") })));
+      fList.append(row);
+    }
+    updateFollowBtn();
+  }
+
+  function updateFollowBtn() {
+    const n = state.follow.selected.size;
+    followBtn.textContent = n ? `Follow selected (${n})` : "Follow selected";
+    followBtn.disabled = state.busy || !n;
+    fSelectAll.disabled = state.busy;
+  }
+
+  async function loadTarget() {
+    const name = targetInput.value.trim().replace(/^@/, "").toLowerCase();
+    if (!name) return setStatus("Type the username of the account to copy from.", true);
+    setBusy(true); state.stop = false;
+    const f = state.follow;
+    f.users = []; f.selected.clear(); f.done.clear(); f.loaded = false; renderFollow();
+    try {
+      setStatus(`Looking up ${name}…`);
+      const info = await api(`users/web_profile_info/?username=${encodeURIComponent(name)}`);
+      const target = info.data && info.data.user;
+      if (!target) throw new Error(`Could not find ${name}.`);
+      const kind = kindSel.value;
+      const users = await fetchList(kind, target.id, (n) => setStatus(`Reading ${name}'s ${kind}… ${n}`), LOAD_CAP);
+      f.users = [...users.values()].slice(0, LOAD_CAP);
+      f.loaded = true;
+      setStatus(`Loaded ${f.users.length} of ${name}'s ${kind}. Tick the ones to follow.`);
+    } catch (e) {
+      setStatus(e.message, true);
+    }
+    setBusy(false); renderFollow();
+  }
+
+  async function followOne(u) {
+    const id = uid(u);
+    await api(`friendships/create/${id}/`, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: `user_id=${encodeURIComponent(id)}`,
+    });
+    state.follow.done.add(id); state.follow.selected.delete(id);
+    await countFollow();
+  }
+
+  async function followBatch() {
+    const f = state.follow;
+    const q = await renderQuota();
+    if (!q.left) return setStatus(`This account already used its ${FOLLOW_LIMIT} follows. Wait for the limit to reset or switch accounts.`, true);
+    const mine = cookie("ds_user_id"), following = alreadyFollowing();
+    const eligible = f.users.filter((u) => f.selected.has(uid(u)) && !f.done.has(uid(u)) && uid(u) !== mine && !following.has(uid(u)));
+    const queue = eligible.slice(0, q.left);
+    if (!queue.length) return;
+    const cut = eligible.length > queue.length ? ` (only ${q.left} allowed by this account's limit)` : "";
+    if (!confirm(`Follow ${queue.length} account(s)${cut}? This will take about ${avgMinutes(queue.length)} minute(s). Keep this tab open.`)) return;
+    setBusy(true); state.stop = false; renderFollow();
+    let n = 0;
+    try {
+      for (const u of queue) {
+        if (state.stop) break;
+        await followOne(u); n++; renderFollow();
+        if (n < queue.length) await pause(delay(), `Followed ${n} of ${queue.length}.`);
+      }
+      setStatus(state.stop ? `Stopped. Followed ${n} of ${queue.length}.` : `Done. Followed ${n} account(s).`);
+    } catch (e) {
+      setStatus(`Stopped after ${n}: ${e.message}`, true);
+    }
+    setBusy(false); renderFollow();
+  }
+
+  loadBtn.onclick = loadTarget;
+  followBtn.onclick = followBatch;
+  fStopBtn.onclick = () => { state.stop = true; setStatus("Stopping…"); };
+  fSelectAll.onclick = () => {
+    const f = state.follow, mine = cookie("ds_user_id"), following = alreadyFollowing();
+    const open = f.users.map(uid).filter((id) => !f.done.has(id) && id !== mine && !following.has(id));
+    const all = open.length && open.every((id) => f.selected.has(id));
+    all ? f.selected.clear() : open.forEach((id) => f.selected.add(id));
+    fSelectAll.textContent = all ? "Select all" : "Select none";
+    renderFollow();
+  };
+
+  launcher.onclick = () => { panel.hidden = !panel.hidden; if (!panel.hidden && state.mode === "follow") renderFollow(); };
   close.onclick = () => { panel.hidden = true; };
   scanBtn.onclick = scan;
   stopBtn.onclick = () => { state.stop = true; setStatus("Stopping…"); };
