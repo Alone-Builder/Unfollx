@@ -95,11 +95,56 @@
     return data;
   }
 
-  // Instagram has served follow/unfollow from different paths over time; try each until one is accepted.
-  async function action(paths, id) {
+  // Instagram's website now follows/unfollows through GraphQL mutations (read from instagram.com's own scripts).
+  const GQL = {
+    unfollow: { name: "usePolarisFollowUserUnfollowMutation", doc: "25174972798866458", key: "xdt_destroy_friendship" },
+    follow: { name: "usePolarisFollowUserFollowMutation", doc: "30480713304862233", key: "xdt_create_friendship" },
+  };
+  // Older REST paths, tried only if the GraphQL call is not recognised.
+  const REST = {
+    unfollow: ["/web/friendships/{id}/unfollow/", "friendships/destroy/{id}/"],
+    follow: ["/web/friendships/{id}/follow/", "friendships/create/{id}/"],
+  };
+
+  let lsdToken = "";
+  function lsd() {
+    if (lsdToken) return lsdToken;
+    for (const s of document.scripts) {
+      const t = s.textContent || "";
+      const m = /"LSD",\[\],\{"token":"([^"]+)"/.exec(t) || /"lsd":"([^"]+)"/.exec(t);
+      if (m) return (lsdToken = m[1]);
+    }
+    return "";
+  }
+
+  async function gql(kind, id) {
+    const g = GQL[kind], token = lsd();
+    const body = new URLSearchParams({
+      av: cookie("ds_user_id"), __d: "www", __user: "0", __a: "1", __req: "1", __comet_req: "7",
+      lsd: token, jazoest: "2" + [...token].reduce((n, c) => n + c.charCodeAt(0), 0),
+      fb_api_req_friendly_name: g.name,
+      variables: JSON.stringify({ target_user_id: id }),
+      server_timestamps: "true", doc_id: g.doc,
+    });
+    const data = await api("/graphql/query", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded", "x-fb-friendly-name": g.name, "x-fb-lsd": token },
+      body,
+    });
+    if (!data.data || !data.data[g.key]) {
+      const msg = (data.errors && data.errors[0] && data.errors[0].message) || data.message || "Instagram did not accept the request.";
+      throw Object.assign(new Error(msg), { retry: true, seen: "graphql: " + msg.slice(0, 80) });
+    }
+    return data;
+  }
+
+  // kind = "follow" | "unfollow". GraphQL first, then the older REST paths.
+  async function action(kind, id) {
     const tried = [];
     let last;
-    for (const p of paths) {
+    try { return await gql(kind, id); }
+    catch (e) { last = e; tried.push(`graphql → ${e.seen || e.message}`); if (!e.retry) throw e; }
+    for (const p of REST[kind]) {
       try {
         return await api(p.replace("{id}", id), {
           method: "POST",
@@ -334,7 +379,7 @@
 
   async function unfollow(u) {
     const id = uid(u);
-    await action(["/web/friendships/{id}/unfollow/", "friendships/destroy/{id}/", "web/friendships/{id}/unfollow/"], id);
+    await action("unfollow", id);
     state.done.add(id); state.selected.delete(id);
   }
 
@@ -467,7 +512,7 @@
 
   async function followOne(u) {
     const id = uid(u);
-    await action(["/web/friendships/{id}/follow/", "friendships/create/{id}/", "web/friendships/{id}/follow/"], id);
+    await action("follow", id);
     state.follow.done.add(id); state.follow.selected.delete(id);
     await countFollow();
   }
