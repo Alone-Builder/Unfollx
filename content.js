@@ -83,13 +83,32 @@
     let data;
     try { data = JSON.parse(text); }
     catch {
-      throw new Error(res.ok
+      throw Object.assign(new Error(res.ok
         ? "Instagram sent a web page instead of data (login or security check). Open instagram.com, finish any prompt, reload the page and try again."
-        : `Instagram returned an error (${res.status}).`);
+        : `Instagram returned an error (${res.status}).`), { retry: true });
     }
+    if (res.status === 404) throw Object.assign(new Error("Instagram returned an error (404)."), { retry: true });
     if (!res.ok) throw new Error(data.message || `Instagram returned an error (${res.status}).`);
     if (data.status === "fail") throw new Error(data.message || "Instagram blocked this action. Wait before trying again.");
     return data;
+  }
+
+  // Instagram has served follow/unfollow from different paths over time; try each until one is accepted.
+  async function action(paths, id) {
+    let last;
+    for (const p of paths) {
+      try {
+        return await api(p.replace("{id}", id), {
+          method: "POST",
+          headers: { "content-type": "application/x-www-form-urlencoded" },
+          body: `user_id=${encodeURIComponent(id)}`,
+        });
+      } catch (e) {
+        last = e;
+        if (!e.retry) throw e;
+      }
+    }
+    throw last;
   }
 
   async function fetchList(kind, userId, onPage, limit = Infinity) {
@@ -311,11 +330,7 @@
 
   async function unfollow(u) {
     const id = uid(u);
-    // Web endpoint used by instagram.com itself (the old mobile "destroy" path returns an HTML page on the web).
-    await api(`web/friendships/${id}/unfollow/`, {
-      method: "POST",
-      headers: { "content-type": "application/x-www-form-urlencoded" },
-    });
+    await action(["friendships/destroy/{id}/", "web/friendships/{id}/unfollow/"], id);
     state.done.add(id); state.selected.delete(id);
   }
 
@@ -448,10 +463,7 @@
 
   async function followOne(u) {
     const id = uid(u);
-    await api(`web/friendships/${id}/follow/`, {
-      method: "POST",
-      headers: { "content-type": "application/x-www-form-urlencoded" },
-    });
+    await action(["friendships/create/{id}/", "web/friendships/{id}/follow/"], id);
     state.follow.done.add(id); state.follow.selected.delete(id);
     await countFollow();
   }
