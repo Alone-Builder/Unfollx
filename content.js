@@ -10,8 +10,8 @@
   //  fast: averages ~1.8 s, so about 100 accounts in 3 minutes.
   //  safe: 20-40 s, far less likely to trigger an Instagram action block.
   const SPEEDS = {
-    fast: { label: "Fast (~3 min per 100)", range: [900, 2700] },
-    safe: { label: "Safe (20–40 s each)", range: [20000, 40000] },
+    fast: { label: "Fast", range: [900, 2700] },
+    safe: { label: "Safe", range: [20000, 40000] },
   };
   const FOLLOW_LIMIT = 100;            // follows allowed per logged-in account...
   const FOLLOW_WINDOW = 24 * 3600e3;   // ...per rolling 24 hours, counted separately for each account
@@ -23,12 +23,13 @@
   //  fans:         they follow you, you don't follow them  (read-only)
   const TABS = [
     { key: "nonfollowers", label: "Not following back", empty: "Everyone you follow follows you back." },
+    { key: "following", label: "Following", empty: "You don't follow anyone." },
     { key: "mutual", label: "Follow you back", empty: "No mutual followers found." },
     { key: "fans", label: "Fans", empty: "Nobody follows you without you following them." },
   ];
 
   const state = {
-    groups: { nonfollowers: [], mutual: [], fans: [] },
+    groups: { nonfollowers: [], following: [], mutual: [], fans: [] },
     tab: "nonfollowers",
     selected: new Set(), done: new Set(), busy: false, stop: false, scanned: false,
     mode: "unfollow", speed: "fast",
@@ -48,6 +49,17 @@
   const cookie = (name) => (document.cookie.match(new RegExp("(?:^|; )" + name + "=([^;]*)")) || [])[1] || "";
   const uid = (u) => String(u.pk ?? u.pk_id ?? u.id);
 
+  // Instagram's web client sends its current "rollout hash" in x-instagram-ajax; read it from the page.
+  let rolloutHash = "";
+  function rollout() {
+    if (rolloutHash) return rolloutHash;
+    for (const s of document.scripts) {
+      const m = /"rollout_hash":"([0-9a-zA-Z]+)"/.exec(s.textContent || "");
+      if (m) return (rolloutHash = m[1]);
+    }
+    return "1";
+  }
+
   async function api(path, options = {}) {
     let claim = "0";
     try { claim = sessionStorage.getItem("www-claim-v2") || "0"; } catch {}
@@ -59,7 +71,7 @@
         "x-ig-app-id": APP_ID,
         "x-asbd-id": "129477",
         "x-ig-www-claim": claim,
-        "x-instagram-ajax": "1",
+        "x-instagram-ajax": rollout(),
         "x-csrftoken": cookie("csrftoken"),
         "x-requested-with": "XMLHttpRequest",
         ...(options.headers || {}),
@@ -105,7 +117,8 @@
 
   const launcher = el("button", { className: "ignf-launch", title: "Unfollx: sort who follows you back" },
     el("span", { className: "ignf-launch-dot" }), "Unfollx");
-  const status = el("div", { className: "ignf-status", textContent: "Press Scan to read your live followers and following lists." });
+  // Notifications appear as a toast at the side of the screen instead of inside the panel.
+  const toast = el("div", { className: "ignf-toast", hidden: true });
   const search = el("input", { className: "ignf-search", type: "search", placeholder: "Search" });
   const scanBtn = el("button", { className: "ignf-btn ignf-primary", textContent: "Scan" });
   const selectAll = el("button", { className: "ignf-btn", textContent: "Select all" });
@@ -129,7 +142,7 @@
   for (const [k, v] of Object.entries(SPEEDS)) speedSel.append(el("option", { value: k, textContent: v.label }));
   speedSel.value = state.speed;
   speedSel.onchange = () => { state.speed = speedSel.value; store.set({ speed: state.speed }); };
-  const speedRow = el("label", { className: "ignf-speed" }, "Speed", speedSel);
+  speedSel.title = "Speed: Fast ≈ 3 min per 100, Safe = 20-40 s each";
 
   const modeBtns = {
     unfollow: el("button", { className: "ignf-tab", textContent: "Unfollow" }),
@@ -160,17 +173,14 @@
   const panel = el("div", { className: "ignf-panel", hidden: true },
     el("div", { className: "ignf-head" },
       el("div", { className: "ignf-title" }, el("span", { className: "ignf-logo" }), el("strong", { textContent: "Unfollx" })),
-      close),
+      el("div", { className: "ignf-head-right" }, speedSel, close)),
     bar,
-    status,
-    speedRow,
     modes,
     unfollowView,
     followView,
-    el("div", { className: "ignf-note", textContent: "Instagram may limit or block your account if you follow or unfollow many accounts quickly. Use Safe speed if you see warnings, and stop for the day if Instagram rate-limits you." }),
   );
   store.get("speed").then(({ speed }) => { if (SPEEDS[speed]) { state.speed = speed; speedSel.value = speed; } });
-  document.body.append(launcher, panel);
+  document.body.append(launcher, panel, toast);
 
   // Update banner: shown when GitHub has a newer version than the one installed.
   const updTitle = el("b");
@@ -182,7 +192,7 @@
         { onclick: () => window.open("https://github.com/Alone-Builder/Unfollx/archive/refs/heads/main.zip", "_blank", "noopener") }),
       Object.assign(el("button", { className: "ignf-btn ignf-small", textContent: "Reload extension" }),
         { onclick: () => { try { chrome.runtime.sendMessage({ type: "reload" }); } catch {} setTimeout(() => location.reload(), 800); } })));
-  panel.insertBefore(updBanner, status);
+  panel.insertBefore(updBanner, modes);
   try {
     chrome.runtime.sendMessage({ type: "check" }, (r) => {
       if (chrome.runtime.lastError || !r || !r.available) return;
@@ -192,7 +202,15 @@
     });
   } catch {}
 
-  const setStatus = (t, bad = false) => { status.textContent = t; status.classList.toggle("ignf-bad", bad); };
+  let toastTimer;
+  const setStatus = (t, bad = false) => {
+    toast.textContent = t;
+    toast.classList.toggle("ignf-bad", bad);
+    toast.hidden = false;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => { toast.hidden = true; }, bad ? 15000 : 7000);
+  };
+  toast.onclick = () => { toast.hidden = true; };
   const setBusy = (b) => {
     state.busy = b;
     scanBtn.disabled = loadBtn.disabled = b;
@@ -230,7 +248,9 @@
     const users = state.groups[state.tab];
     const shown = users.filter((u) => !q || u.username.toLowerCase().includes(q) || (u.full_name || "").toLowerCase().includes(q));
     list.replaceChildren();
-    if (state.scanned && !shown.length) {
+    if (!state.scanned && !state.busy) {
+      list.append(el("li", { className: "ignf-empty", textContent: "Press Scan to read your followers and following." }));
+    } else if (state.scanned && !shown.length) {
       list.append(el("li", { className: "ignf-empty", textContent: q ? "No matches." : TABS.find((t) => t.key === state.tab).empty }));
     }
     for (const u of shown) {
@@ -272,12 +292,13 @@
     const me = cookie("ds_user_id");
     if (!me) return setStatus("You are not logged in to Instagram in this browser. Log in, then press Scan again.", true);
     setBusy(true); state.stop = false;
-    state.groups = { nonfollowers: [], mutual: [], fans: [] };
+    state.groups = { nonfollowers: [], following: [], mutual: [], fans: [] };
     state.scanned = false; state.selected.clear(); state.done.clear(); render();
     try {
       const following = await fetchList("following", me, (n) => setStatus(`Reading who you follow… ${n}`));
       const followers = await fetchList("followers", me, (n) => setStatus(`Reading your followers… ${n}`));
       const g = state.groups;
+      g.following = [...following.values()];
       for (const [id, u] of following) (followers.has(id) ? g.mutual : g.nonfollowers).push(u);
       for (const [id, u] of followers) if (!following.has(id)) g.fans.push(u);
       state.scanned = true;
@@ -290,10 +311,10 @@
 
   async function unfollow(u) {
     const id = uid(u);
-    await api(`friendships/destroy/${id}/`, {
+    // Web endpoint used by instagram.com itself (the old mobile "destroy" path returns an HTML page on the web).
+    await api(`web/friendships/${id}/unfollow/`, {
       method: "POST",
       headers: { "content-type": "application/x-www-form-urlencoded" },
-      body: `user_id=${encodeURIComponent(id)}`,
     });
     state.done.add(id); state.selected.delete(id);
   }
@@ -427,10 +448,9 @@
 
   async function followOne(u) {
     const id = uid(u);
-    await api(`friendships/create/${id}/`, {
+    await api(`web/friendships/${id}/follow/`, {
       method: "POST",
       headers: { "content-type": "application/x-www-form-urlencoded" },
-      body: `user_id=${encodeURIComponent(id)}`,
     });
     state.follow.done.add(id); state.follow.selected.delete(id);
     await countFollow();
