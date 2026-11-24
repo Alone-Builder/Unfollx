@@ -89,6 +89,11 @@
         ? "Instagram sent a web page instead of data (login or security check). Open instagram.com, finish any prompt, reload the page and try again."
         : `Instagram returned an error (${res.status}).`), { retry: true, seen });
     }
+    if (data.message === "feedback_required" || data.spam === true || data.feedback_required) {
+      throw Object.assign(new Error(
+        (data.feedback_message || "Instagram has temporarily blocked follow/unfollow actions on this account.") +
+        " Stop for now; this usually lifts after several hours to a day."), { blocked: true });
+    }
     if (res.status === 404) throw Object.assign(new Error("Instagram returned an error (404)."), { retry: true, seen });
     if (!res.ok) throw new Error(data.message || `Instagram returned an error (${res.status}).`);
     if (data.status === "fail") throw new Error(data.message || "Instagram blocked this action. Wait before trying again.");
@@ -180,7 +185,23 @@
   }
 
   // kind = "follow" | "unfollow". GraphQL first, then the older REST paths.
+  // After Instagram blocks actions, stop sending any for a while: every further attempt makes the block last longer.
+  const COOLDOWN = 6 * 3600e3;
   async function action(kind, id) {
+    const me = cookie("ds_user_id");
+    const { cooldowns = {} } = await store.get("cooldowns");
+    if (cooldowns[me] > Date.now()) {
+      const h = Math.ceil((cooldowns[me] - Date.now()) / 3600e3);
+      throw new Error(`Paused to protect your account: Instagram blocked actions recently. Try again in about ${h}h.`);
+    }
+    try { return await actionNow(kind, id); }
+    catch (e) {
+      if (e.blocked) { cooldowns[me] = Date.now() + COOLDOWN; store.set({ cooldowns }); }
+      throw e;
+    }
+  }
+
+  async function actionNow(kind, id) {
     const tried = [];
     let last;
     try { return await gql(kind, id); }
