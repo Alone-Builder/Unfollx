@@ -38,7 +38,29 @@ chrome.runtime.onInstalled.addListener(() => { chrome.alarms.create("update-chec
 chrome.runtime.onStartup.addListener(() => check(true));
 chrome.alarms.onAlarm.addListener((a) => { if (a.name === "update-check") check(true); });
 
+// Finds Instagram's current follow/unfollow operation ids inside its own script files.
+async function findDocs(urls) {
+  const want = {
+    unfollow: /usePolarisFollowUserUnfollowMutation_instagramRelayOperation",\[\],\(function\([^)]*\)\{[^}]*?exports="(\d+)"/,
+    follow: /usePolarisFollowUserFollowMutation_instagramRelayOperation",\[\],\(function\([^)]*\)\{[^}]*?exports="(\d+)"/,
+  };
+  const out = {};
+  const queue = urls.filter((u) => /^https:\/\/static\.cdninstagram\.com\//.test(u));
+  const worker = async () => {
+    while (queue.length && !(out.unfollow && out.follow)) {
+      try {
+        const text = await (await fetch(queue.shift())).text();
+        if (!text.includes("usePolarisFollowUser")) continue;
+        for (const [k, re] of Object.entries(want)) { const m = re.exec(text); if (m) out[k] = m[1]; }
+      } catch {}
+    }
+  };
+  await Promise.all(Array.from({ length: 8 }, worker));
+  return out;
+}
+
 chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
+  if (msg.type === "docs") { findDocs(msg.urls || []).then(reply); return true; }
   if (msg.type === "check") { check(!!msg.force).then(reply); return true; }
   if (msg.type === "reload") { chrome.runtime.reload(); }
 });

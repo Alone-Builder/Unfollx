@@ -106,33 +106,74 @@
     follow: ["/web/friendships/{id}/follow/", "friendships/create/{id}/"],
   };
 
-  let lsdToken = "";
-  function lsd() {
-    if (lsdToken) return lsdToken;
+  // Security tokens Instagram's own pages embed (the website sends them with every GraphQL call).
+  const tokens = {};
+  function pageToken(name, patterns) {
+    if (tokens[name]) return tokens[name];
     for (const s of document.scripts) {
       const t = s.textContent || "";
-      const m = /"LSD",\[\],\{"token":"([^"]+)"/.exec(t) || /"lsd":"([^"]+)"/.exec(t);
-      if (m) return (lsdToken = m[1]);
+      if (t.length < 20) continue;
+      for (const p of patterns) { const m = p.exec(t); if (m && m[1]) return (tokens[name] = m[1]); }
     }
     return "";
   }
+  const lsd = () => pageToken("lsd", [/"LSD",\[\],\{"token":"([^"]+)"/, /"lsd":"([^"]+)"/]);
+  const dtsg = () => {
+    const v = pageToken("dtsg", [/"DTSGInitialData",\[\],\{"token":"([^"]+)"/, /"dtsg":\{"token":"([^"]+)"/]);
+    if (v) return v;
+    const input = document.querySelector('input[name="fb_dtsg"]');
+    return input ? (tokens.dtsg = input.value) : "";
+  };
 
-  async function gql(kind, id) {
-    const g = GQL[kind], token = lsd();
+  // Operation ids change when Instagram deploys. Cache the latest ones and re-read them from
+  // Instagram's own scripts (via the background worker) when a request is rejected.
+  let docsFresh = false;
+  async function loadDocs() {
+    const { docs } = await store.get("docs");
+    if (docs) for (const k of Object.keys(GQL)) if (docs[k]) GQL[k].doc = docs[k];
+  }
+  async function refreshDocs() {
+    if (docsFresh) return false;
+    docsFresh = true;
+    const urls = new Set();
+    for (const el of document.querySelectorAll("script[src],link[href]")) {
+      const u = el.src || el.href;
+      if (/static\.cdninstagram\.com.*\.js/.test(u)) urls.add(u);
+    }
+    for (const m of document.documentElement.innerHTML.matchAll(/"src":"(https:[^"]+?\.js)"/g)) urls.add(m[1].replace(/\\//g, "/"));
+    setStatus("Updating to Instagram's latest version… this takes a moment.");
+    const found = await new Promise((r) => { try { chrome.runtime.sendMessage({ type: "docs", urls: [...urls] }, (x) => r(chrome.runtime.lastError ? null : x)); } catch { r(null); } });
+    let changed = false;
+    if (found) for (const k of Object.keys(GQL)) if (found[k] && found[k] !== GQL[k].doc) { GQL[k].doc = found[k]; changed = true; }
+    if (found) store.set({ docs: { unfollow: GQL.unfollow.doc, follow: GQL.follow.doc } });
+    return changed;
+  }
+
+  async function gql(kind, id, retried = false) {
+    const g = GQL[kind], l = lsd(), d = dtsg();
     const body = new URLSearchParams({
       av: cookie("ds_user_id"), __d: "www", __user: "0", __a: "1", __req: "1", __comet_req: "7",
-      lsd: token, jazoest: "2" + [...token].reduce((n, c) => n + c.charCodeAt(0), 0),
+      lsd: l, jazoest: "2" + [...(d || l)].reduce((n, c) => n + c.charCodeAt(0), 0),
       fb_api_req_friendly_name: g.name,
-      variables: JSON.stringify({ target_user_id: id }),
+      variables: JSON.stringify({ target_user_id: id, ...(kind === "follow" ? { } : {}) }),
       server_timestamps: "true", doc_id: g.doc,
     });
-    const data = await api("/graphql/query", {
-      method: "POST",
-      headers: { "content-type": "application/x-www-form-urlencoded", "x-fb-friendly-name": g.name, "x-fb-lsd": token },
-      body,
-    });
+    if (d) body.set("fb_dtsg", d);
+    let data;
+    try {
+      data = await api("/graphql/query", {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded", "x-fb-friendly-name": g.name, "x-fb-lsd": l },
+        body,
+      });
+    } catch (e) {
+      // Unknown/old operation id -> look up the current one once and retry.
+      if (!retried && /\((400|404)\)|persist|doc_id|not found/i.test(e.message) && await refreshDocs()) return gql(kind, id, true);
+      throw e;
+    }
     if (!data.data || !data.data[g.key]) {
       const msg = (data.errors && data.errors[0] && data.errors[0].message) || data.message || "Instagram did not accept the request.";
+      if (!retried && /persist|doc_id|not found|unknown/i.test(msg) && await refreshDocs()) return gql(kind, id, true);
       throw Object.assign(new Error(msg), { retry: true, seen: "graphql: " + msg.slice(0, 80) });
     }
     return data;
@@ -159,6 +200,8 @@
     }
     throw new Error(`${last.message} Tried: ${tried.join("; ")}`);
   }
+
+  loadDocs();
 
   async function fetchList(kind, userId, onPage, limit = Infinity) {
     const users = new Map();
