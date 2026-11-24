@@ -140,7 +140,7 @@
       const u = el.src || el.href;
       if (/static\.cdninstagram\.com.*\.js/.test(u)) urls.add(u);
     }
-    for (const m of document.documentElement.innerHTML.matchAll(/"src":"(https:[^"]+?\.js)"/g)) urls.add(m[1].replace(/\\//g, "/"));
+    for (const m of document.documentElement.innerHTML.matchAll(/"src":"(https:[^"]+?\.js)"/g)) urls.add(m[1].split("\\/").join("/"));
     setStatus("Updating to Instagram's latest version… this takes a moment.");
     const found = await new Promise((r) => { try { chrome.runtime.sendMessage({ type: "docs", urls: [...urls] }, (x) => r(chrome.runtime.lastError ? null : x)); } catch { r(null); } });
     let changed = false;
