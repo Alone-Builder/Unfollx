@@ -60,10 +60,16 @@
     return "1";
   }
 
+  // Last few requests, kept so the "Report" button can copy exactly what Instagram answered (tokens removed).
+  const callLog = [];
+  const redact = (t) => String(t).replace(/[A-Za-z0-9_%:.\-]{28,}/g, "…").replace(/\s+/g, " ").slice(0, 220);
+  const note = (line) => { callLog.push(new Date().toISOString().slice(11, 19) + " " + line); if (callLog.length > 14) callLog.shift(); };
+
   async function api(path, options = {}) {
     let claim = "0";
     try { claim = sessionStorage.getItem("www-claim-v2") || "0"; } catch {}
-    const res = await fetch(path.startsWith("/") ? "https://www.instagram.com" + path : "https://www.instagram.com/api/v1/" + path, {
+    let res;
+    try { res = await fetch(path.startsWith("/") ? "https://www.instagram.com" + path : "https://www.instagram.com/api/v1/" + path, {
       credentials: "include",
       ...options,
       headers: {
@@ -76,12 +82,16 @@
         "x-requested-with": "XMLHttpRequest",
         ...(options.headers || {}),
       },
-    });
+    }); } catch (e) {
+      note(`${path.split("?")[0]} -> network error: ${e.message}`);
+      throw new Error("Can't reach Instagram (network or DNS problem). Check your internet connection, then try again.");
+    }
     if (res.status === 429) throw new Error("Instagram is rate-limiting you. Wait a few hours before trying again.");
     if (res.status === 401 || res.status === 403) throw new Error("Instagram refused the request. Make sure you are logged in, then reload the page.");
     const text = await res.text();
     const seen = `${res.status} ${(res.headers.get("content-type") || "").split(";")[0] || "no type"}${res.redirected ? ", redirected" : ""}`;
-    console.debug("[Unfollx]", path, seen, text.slice(0, 160));
+    note(`${path.split("?")[0]} -> ${seen} ${redact(text.slice(0, 220))}`);
+    console.log("[Unfollx]", path.split("?")[0], seen);
     let data;
     try { data = JSON.parse(text); }
     catch {
@@ -269,6 +279,19 @@
     tabs.append(b);
   }
   const tools = el("div", { className: "ignf-tools" }, scanBtn, selectAll, batchBtn, stopBtn);
+  const reportBtn = el("button", { className: "ignf-btn ignf-small", textContent: "Report", title: "Copy a diagnostic report (no tokens or cookies) to paste to the developer" });
+  reportBtn.onclick = async () => {
+    const ver = (() => { try { return chrome.runtime.getManifest().version; } catch { return "?"; } })();
+    const text = [
+      `Unfollx v${ver}  ${new Date().toISOString()}`,
+      `page tokens found: dtsg=${!!dtsg()} lsd=${!!lsd()} rollout=${rollout() !== "1"}`,
+      `operation ids: unfollow=${GQL.unfollow.doc} follow=${GQL.follow.doc}  speed=${state.speed}`,
+      "--- last requests ---", ...(callLog.length ? callLog : ["(none yet: press Unfollow on one account first)"]),
+    ].join(String.fromCharCode(10));
+    try { await navigator.clipboard.writeText(text); setStatus("Report copied. Paste it into the chat."); }
+    catch { setStatus(text.slice(0, 600), true); }
+  };
+
   // Speed + mode switch (shared by both views)
   const speedSel = el("select", { className: "ignf-select" });
   for (const [k, v] of Object.entries(SPEEDS)) speedSel.append(el("option", { value: k, textContent: v.label }));
@@ -305,7 +328,7 @@
   const panel = el("div", { className: "ignf-panel", hidden: true },
     el("div", { className: "ignf-head" },
       el("div", { className: "ignf-title" }, el("span", { className: "ignf-logo" }), el("strong", { textContent: "Unfollx" })),
-      el("div", { className: "ignf-head-right" }, speedSel, close)),
+      el("div", { className: "ignf-head-right" }, reportBtn, speedSel, close)),
     bar,
     modes,
     unfollowView,
